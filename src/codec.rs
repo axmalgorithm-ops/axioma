@@ -1,125 +1,123 @@
-//! Деление‑свободный диапазонный кодер (кроме одного деления в декодере).
-//! Параметры: TOP = 1<<24, BOTTOM = 24‑битная маска.
-//! Кодер пишет напрямую в предварительно аллоцированный буфер.
+use crate::entropy::FastAdaptiveModel;
 
-use crate::entropy::Model;
+const TOP: u32 = 1 << 24;
+const BOTTOM: u32 = 1 << 16;
 
-const TOP: u64 = 1 << 24;
-const BOTTOM: u64 = 0x00FF_FFFF;
-const INIT_RANGE: u64 = 0xFFFF_FFFF;
-
-/// Быстрый кодер, не выполняющий аллокаций в `put()`.
 pub struct FastRangeEncoder {
-    low: u64,
-    range: u64,
+    low: u32,
+    range: u32,
     output: Vec<u8>,
 }
 
 impl FastRangeEncoder {
-    /// Создаёт кодер с предварительным резервированием ёмкости.
-    /// Это гарантирует, что последующие вызовы `put()` никогда не вызовут realloc.
     pub fn with_capacity(cap: usize) -> Self {
-        FastRangeEncoder {
+        Self {
             low: 0,
-            range: INIT_RANGE,
+            range: 0xFFFF_FFFF,
             output: Vec::with_capacity(cap),
         }
     }
 
-    /// Размер уже записанных байт.
-    pub fn len(&self) -> usize {
-        self.output.len()
-    }
+    pub fn encode(&mut self, symbol: u8, model: &mut FastAdaptiveModel) {
+        let sym = symbol as usize;
+        let cum_low = model.cum[sym];
+        let freq = model.freq[sym];
+        let total = model.total;
 
-    /// Закодировать один символ.
-    #[inline]
-    pub fn put(&mut self, sym: usize, model: &mut dyn Model) {
-        let scale = self.range >> 12; // деление на 4096 без деления
-        let cum = model.cum_freq(sym) as u64;
-        let freq = model.freq(sym) as u64;
+        self.range /= total;
+        self.low += cum_low * self.range;
+        self.range *= freq;
 
-        self.low += cum * scale;
-        self.range = freq * scale;
-
-        // Нормализация – вывод полных байтов
         while self.range < TOP {
+            if self.low ^ (self.low + self.range) >= TOP {
+                if self.range < BOTTOM {
+                    self.range = (!self.low & (BOTTOM - 1)) + 1;
+                } else {
+                    break;
+                }
+            }
             self.output.push((self.low >> 24) as u8);
-            self.low = (self.low << 8) & BOTTOM;
             self.range <<= 8;
+            self.low <<= 8;
         }
-        model.update(sym);
+        
+        model.update(symbol);
     }
 
-    /// Завершить кодирование и вернуть буфер.
-    pub fn finish(mut self) -> Vec<u8> {
-        // Выгружаем 5 байт для однозначного декодирования
-        for _ in 0..5 {
+    pub fn finish(&mut self) -> &[u8] {
+        for _ in 0..4 {
             self.output.push((self.low >> 24) as u8);
-            self.low = (self.low << 8) & BOTTOM;
+            self.low <<= 8;
         }
-        self.output
+        &self.output
+    }
+
+    pub fn output(&self) -> &[u8] {
+        &self.output
     }
 }
 
-// ----------------------------------------------------------------
-// Декодер
-// ----------------------------------------------------------------
-
 pub struct FastRangeDecoder<'a> {
-    low: u64,
-    range: u64,
-    code: u64,
-    input: &'a [u8],
+    low: u32,
+    range: u32,
+    code: u32,
+    data: &'a [u8],
     pos: usize,
 }
 
 impl<'a> FastRangeDecoder<'a> {
-    pub fn new(data: &'a [u8]) -> Self {
-        let mut code = 0u64;
+    pub fn new(data: &'a [u8]) -> Option<Self> {
+        if data.len() < 4 { return None; }
+        let mut code = 0;
         for i in 0..4 {
-            code = (code << 8) | (data.get(i).copied().unwrap_or(0) as u64);
+            code = (code << 8) | (data[i] as u32);
         }
-        FastRangeDecoder {
+        Some(Self {
             low: 0,
-            range: INIT_RANGE,
+            range: 0xFFFF_FFFF,
             code,
-            input: data,
+            data,
             pos: 4,
-        }
+        })
     }
 
-    /// Извлечь следующий символ.
-    /// Использует одно аппаратное деление на `scale` (максимум 20 бит) – быстро на всех CPU.
-    #[inline]
-    pub fn get(&mut self, model: &mut dyn Model) -> usize {
-        let scale = self.range >> 12;
-        let value = ((self.code - self.low) / scale) as u32; // value < 4096
+    pub fn decode(&mut self, model: &mut FastAdaptiveModel) -> u8 {
+        let total = model.total;
+        self.range /= total;
+        let count = (self.code.wrapping_sub(self.low)) / self.range;
 
-        // Линейный поиск символа (дружественен к branch prediction)
         let mut sym = 0;
-        loop {
-            // Предполагаем, что cum_freq для несуществующего 256-го символа равен 4096
-            if value < model.cum_freq(sym + 1) {
-                break;
-            }
+        while sym < 256 && model.cum[sym + 1] <= count {
             sym += 1;
         }
 
-        let cum = model.cum_freq(sym) as u64;
-        let freq = model.freq(sym) as u64;
-
-        self.low += cum * scale;
-        self.range = freq * scale;
+        self.low += model.cum[sym] * self.range;
+        self.range *= model.freq[sym];
 
         while self.range < TOP {
+            if self.low ^ (self.low + self.range) >= TOP {
+                if self.range < BOTTOM {
+                    self.range = (!self.low & (BOTTOM - 1)) + 1;
+                } else {
+                    break;
+                }
+            }
+            self.code = (self.code << 8) | self.read_byte() as u32;
             self.range <<= 8;
-            self.low = (self.low << 8) & BOTTOM;
-            let byte = self.input.get(self.pos).copied().unwrap_or(0) as u64;
-            self.pos += 1;
-            self.code = ((self.code << 8) | byte) & BOTTOM;
+            self.low <<= 8;
         }
 
-        model.update(sym);
-        sym
+        model.update(sym as u8);
+        sym as u8
+    }
+
+    fn read_byte(&mut self) -> u8 {
+        if self.pos < self.data.len() {
+            let b = self.data[self.pos];
+            self.pos += 1;
+            b
+        } else {
+            0
+        }
     }
 }
