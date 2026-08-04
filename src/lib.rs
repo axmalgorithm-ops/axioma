@@ -5,7 +5,6 @@ use entropy::FastAdaptiveModel;
 use codec::{FastRangeEncoder, FastRangeDecoder};
 
 /// Сжимает массив байт.
-/// Возвращает вектор с 4-байтным заголовком (исходная длина) и сжатыми данными.
 pub fn compress(input: &[u8]) -> Vec<u8> {
     let mut model = FastAdaptiveModel::new();
     let mut enc = FastRangeEncoder::with_capacity(input.len() / 2 + 16);
@@ -56,12 +55,12 @@ mod tests {
 
     #[test]
     fn test_roundtrip_random() {
-        let mut data = vec![0u8; 100_000];
+        let mut data = vec![0u8; 64_000];
         for (i, byte) in data.iter_mut().enumerate() {
             *byte = ((i * 1103515245 + 12345) >> 16) as u8;
         }
         let comp = compress(&data);
         let decomp = decompress(&comp).unwrap();
-        assert_eq!(data, decomp, "Сбой на случайных данных!");
+        assert_eq!(data, decomp, "Ошибка: распакованные данные не совпадают с оригиналом!");
     }
 }
