@@ -1,17 +1,70 @@
-use axioma;
+use std::env;
+use std::fs;
+use std::process;
+use std::time::Instant;
+use axioma::{compress, decompress};
 
 fn main() {
-    let original = b"AXIOMA ultimate universal compressor – zero allocations, ultra speed.";
-    let compressed = axioma::compress(original);
-    let decompressed = axioma::decompress(&compressed).expect("decompression failed");
-    assert_eq!(&decompressed[..], &original[..]);
-    println!("✓ Round-trip OK [{} -> {} bytes]", original.len(), compressed.len());
+    let args: Vec<String> = env::args().collect();
 
-    // Стресс‑тест на 100 KB псевдослучайных данных
-    let big: Vec<u8> = (0..100_000).map(|i| (i.wrapping_mul(0x9E3779B9) >> 16) as u8).collect();
-    let comp = axioma::compress(&big);
-    let decomp = axioma::decompress(&comp).unwrap();
-    assert_eq!(decomp, big);
-    println!("✓ 100 KB random data round‑trip, ratio = {:.1}%", 
-             comp.len() as f64 / big.len() as f64 * 100.0);
+    if args.len() < 4 {
+        eprintln!("Axioma Universal Compressor");
+        eprintln!("Usage:");
+        eprintln!("  {} compress <input_file> <output_file>", args[0]);
+        eprintln!("  {} decompress <input_file> <output_file>", args[0]);
+        process::exit(1);
+    }
+
+    let mode = &args[1];
+    let input_path = &args[2];
+    let output_path = &args[3];
+
+    match mode.as_str() {
+        "compress" => {
+            println!("Reading {}...", input_path);
+            let input_data = fs::read(input_path).unwrap_or_else(|err| {
+                eprintln!("Error reading file: {}", err);
+                process::exit(1);
+            });
+
+            let start = Instant::now();
+            let compressed = compress(&input_data);
+            let duration = start.elapsed();
+
+            fs::write(output_path, &compressed).unwrap_or_else(|err| {
+                eprintln!("Error writing file: {}", err);
+                process::exit(1);
+            });
+
+            let ratio = (compressed.len() as f64 / input_data.len() as f64) * 100.0;
+            println!("✓ Compressed in {:?}", duration);
+            println!("✓ Size: {} -> {} bytes ({:.2}%)", input_data.len(), compressed.len(), ratio);
+        }
+        "decompress" => {
+            println!("Reading {}...", input_path);
+            let compressed_data = fs::read(input_path).unwrap_or_else(|err| {
+                eprintln!("Error reading file: {}", err);
+                process::exit(1);
+            });
+
+            let start = Instant::now();
+            let decompressed = decompress(&compressed_data).unwrap_or_else(|| {
+                eprintln!("Error: Corrupted file or invalid format");
+                process::exit(1);
+            });
+            let duration = start.elapsed();
+
+            fs::write(output_path, &decompressed).unwrap_or_else(|err| {
+                eprintln!("Error writing file: {}", err);
+                process::exit(1);
+            });
+
+            println!("✓ Decompressed in {:?}", duration);
+            println!("✓ Restored size: {} bytes", decompressed.len());
+        }
+        _ => {
+            eprintln!("Unknown mode '{}'. Use 'compress' or 'decompress'.", mode);
+            process::exit(1);
+        }
+    }
 }
