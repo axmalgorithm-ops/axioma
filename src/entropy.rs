@@ -1,77 +1,53 @@
-//! Сверхлёгкая адаптивная модель с фиксированной суммой 4096.
-//! Кумулятивные частоты поддерживаются инкрементально – обновление за O(256-sym),
-//! полное перестроение только при периодическом масштабировании.
-
-/// Трейт модели вероятностей для диапазонного кодера.
-pub trait Model {
-    /// Всегда 4096.
-    fn total(&self) -> u32;
-    fn freq(&self, sym: usize) -> u32;
-    fn cum_freq(&self, sym: usize) -> u32;
-    fn update(&mut self, sym: usize);
-    fn num_symbols(&self) -> usize;
-}
-
-/// Модель 256 символов, сумма всегда 4096.
 pub struct FastAdaptiveModel {
-    freq: [u32; 256],
-    cum:  [u32; 256], // cum[i] = sum_{j<i} freq[j]
-    total: u32,       // реальная сумма freq, не превышает 4096
+    pub freq: Box<[u32; 257]>,
+    pub cum: Box<[u32; 258]>,
+    pub total: u32,
 }
 
 impl FastAdaptiveModel {
     pub fn new() -> Self {
-        let initial = 16u32; // 4096 / 256
-        let mut freq = [initial; 256];
-        let mut cum = [0u32; 256];
+        // Изначально всем символам даем равный вес
+        let mut freq = Box::new([1; 257]);
+        let mut cum = Box::new([0; 258]);
+        
         let mut acc = 0;
-        for i in 0..256 {
+        for i in 0..=256 {
             cum[i] = acc;
             acc += freq[i];
         }
-        FastAdaptiveModel { freq, cum, total: 4096 }
-    }
-}
+        cum[257] = acc;
 
-impl Model for FastAdaptiveModel {
-    #[inline(always)]
-    fn total(&self) -> u32 { 4096 }
-
-    #[inline(always)]
-    fn freq(&self, sym: usize) -> u32 {
-        unsafe { *self.freq.get_unchecked(sym) }
-    }
-
-    #[inline(always)]
-    fn cum_freq(&self, sym: usize) -> u32 {
-        unsafe { *self.cum.get_unchecked(sym) }
-    }
-
-    fn update(&mut self, sym: usize) {
-        // Инкрементальное обновление кумулятивных частот
-        self.freq[sym] += 1;
-        self.total += 1;
-
-        // Прибавляем 1 ко всем cum[k] для k > sym
-        for k in (sym + 1)..256 {
-            self.cum[k] += 1;
+        Self {
+            freq,
+            cum,
+            total: acc,
         }
+    }
 
-        // Масштабирование при переполнении
-        if self.total > 4096 {
-            for f in &mut self.freq {
-                *f = (*f >> 1) + 1; // никогда не обнуляется
-            }
-            // Полное перестроение cum и total (один проход)
+    pub fn update(&mut self, symbol: u8) {
+        let sym = symbol as usize;
+        self.freq[sym] += 16;
+        self.total += 16;
+
+        // Механизм масштабирования: когда сумма становится слишком большой,
+        // мы делим все частоты пополам (сдвиг вправо), не допуская падения до нуля.
+        if self.total >= 8192 {
             let mut acc = 0;
-            for i in 0..256 {
+            for i in 0..=256 {
+                self.freq[i] = (self.freq[i] >> 1).max(1);
                 self.cum[i] = acc;
                 acc += self.freq[i];
             }
+            self.cum[257] = acc;
             self.total = acc;
+        } else {
+            // Быстрый перерасчет кумулятивной суммы без деления
+            let mut acc = 0;
+            for i in 0..=256 {
+                self.cum[i] = acc;
+                acc += self.freq[i];
+            }
+            self.cum[257] = acc;
         }
     }
-
-    #[inline(always)]
-    fn num_symbols(&self) -> usize { 256 }
 }
