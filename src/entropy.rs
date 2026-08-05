@@ -6,10 +6,10 @@ pub struct FastAdaptiveModel {
 
 impl FastAdaptiveModel {
     pub fn new() -> Self {
-        // Изначально всем символам даем равный вес
-        let mut freq = Box::new([1; 257]);
-        let mut cum = Box::new([0; 258]);
-        
+        // Initialize all symbols with an equal base weight
+        let freq = Box::new([1u32; 257]);
+        let mut cum = Box::new([0u32; 258]);
+
         let mut acc = 0;
         for i in 0..=256 {
             cum[i] = acc;
@@ -29,8 +29,9 @@ impl FastAdaptiveModel {
         self.freq[sym] += 16;
         self.total += 16;
 
-        // Механизм масштабирования: когда сумма становится слишком большой,
-        // мы делим все частоты пополам (сдвиг вправо), не допуская падения до нуля.
+        // Scaling mechanism: when the total frequency mass exceeds the threshold,
+        // we halve all frequencies (bitwise right shift) to prevent range overflow.
+        // The .max(1) ensures no frequency ever drops to absolute zero.
         if self.total >= 8192 {
             let mut acc = 0;
             for i in 0..=256 {
@@ -41,7 +42,7 @@ impl FastAdaptiveModel {
             self.cum[257] = acc;
             self.total = acc;
         } else {
-            // Быстрый перерасчет кумулятивной суммы без деления
+            // Fast recalculation of the cumulative distribution
             let mut acc = 0;
             for i in 0..=256 {
                 self.cum[i] = acc;
