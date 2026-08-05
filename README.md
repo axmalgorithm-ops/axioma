@@ -15,7 +15,6 @@ No dictionaries. No heavy deps. Just math and a few buffers.
 
 ```bash
 # clone and test
-git clone [https://github.com/axmalgorithm-ops/axioma](https://github.com/axmalgorithm-ops/axioma)
+git clone https://github.com/axmalgorithm-ops/axioma
 cd axioma
 cargo test
-
