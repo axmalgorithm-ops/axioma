@@ -1,11 +1,11 @@
 use crate::entropy::FastAdaptiveModel;
 
-const TOP: u32 = 1 << 24;
-const BOTTOM: u32 = 1 << 16;
+const TOP: u64 = 1 << 24;
+const BOTTOM: u64 = 1 << 16;
 
 pub struct FastRangeEncoder {
-    low: u32,
-    range: u32,
+    low: u64,
+    range: u64,
     output: Vec<u8>,
 }
 
@@ -13,29 +13,25 @@ impl FastRangeEncoder {
     pub fn with_capacity(cap: usize) -> Self {
         Self {
             low: 0,
-            range: 0xFFFF_FFFF,
+            range: 0xFFFF_FFFF_u64,
             output: Vec::with_capacity(cap),
         }
     }
 
     pub fn encode(&mut self, symbol: u8, model: &mut FastAdaptiveModel) {
         let sym = symbol as usize;
-        let cum_low = model.cum[sym];
-        let freq = model.freq[sym];
-        let total = model.total;
+        let cum_low = model.cum[sym] as u64;
+        let freq = model.freq[sym] as u64;
+        let total = model.total as u64;
 
-        // Core arithmetic encoding step with wrapping arithmetic for debug safety
         self.range /= total;
-        let add_val = cum_low.wrapping_mul(self.range);
-        self.low = self.low.wrapping_add(add_val);
-        self.range = self.range.wrapping_mul(freq);
+        self.low += cum_low * self.range;
+        self.range *= freq;
 
-        // Renormalization loop
         while self.range < TOP {
-            if self.low ^ (self.low.wrapping_add(self.range)) >= TOP {
+            if (self.low ^ (self.low + self.range)) >= TOP {
                 if self.range < BOTTOM {
-                    let mask = BOTTOM - 1;
-                    self.range = (!self.low & mask).wrapping_add(1);
+                    self.range = (!self.low & (BOTTOM - 1)) + 1;
                 } else {
                     break;
                 }
@@ -62,9 +58,9 @@ impl FastRangeEncoder {
 }
 
 pub struct FastRangeDecoder<'a> {
-    low: u32,
-    range: u32,
-    code: u32,
+    low: u64,
+    range: u64,
+    code: u64,
     data: &'a [u8],
     pos: usize,
 }
@@ -73,14 +69,14 @@ impl<'a> FastRangeDecoder<'a> {
     pub fn new(data: &'a [u8]) -> Option<Self> {
         if data.len() < 4 { return None; }
         
-        let mut code = 0;
+        let mut code = 0u64;
         for i in 0..4 {
-            code = (code << 8) | (data[i] as u32);
+            code = (code << 8) | (data[i] as u64);
         }
         
         Some(Self {
             low: 0,
-            range: 0xFFFF_FFFF,
+            range: 0xFFFF_FFFF_u64,
             code,
             data,
             pos: 4,
@@ -88,30 +84,31 @@ impl<'a> FastRangeDecoder<'a> {
     }
 
     pub fn decode(&mut self, model: &mut FastAdaptiveModel) -> u8 {
-        let total = model.total;
+        let total = model.total as u64;
         self.range /= total;
         
-        let count = (self.code.wrapping_sub(self.low)) / self.range;
+        let count = (self.code - self.low) / self.range;
 
         let mut sym = 0;
-        while sym < 256 && model.cum[sym + 1] <= count {
+        while sym < 256 && (model.cum[sym + 1] as u64) <= count {
             sym += 1;
         }
 
-        let add_val = model.cum[sym].wrapping_mul(self.range);
-        self.low = self.low.wrapping_add(add_val);
-        self.range = self.range.wrapping_mul(model.freq[sym]);
+        let cum_low = model.cum[sym] as u64;
+        let freq = model.freq[sym] as u64;
+
+        self.low += cum_low * self.range;
+        self.range *= freq;
 
         while self.range < TOP {
-            if self.low ^ (self.low.wrapping_add(self.range)) >= TOP {
+            if (self.low ^ (self.low + self.range)) >= TOP {
                 if self.range < BOTTOM {
-                    let mask = BOTTOM - 1;
-                    self.range = (!self.low & mask).wrapping_add(1);
+                    self.range = (!self.low & (BOTTOM - 1)) + 1;
                 } else {
                     break;
                 }
             }
-            self.code = (self.code << 8) | (self.read_byte() as u32);
+            self.code = (self.code << 8) | (self.read_byte() as u64);
             self.range <<= 8;
             self.low <<= 8;
         }
