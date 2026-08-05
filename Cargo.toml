@@ -6,3 +6,9 @@ description = "A zero-allocation, division-free universal compression core"
 authors = ["Murad Abbasov"]
 
 [dependencies]
+
+[profile.dev]
+overflow-checks = false
+
+[profile.test]
+overflow-checks = false
