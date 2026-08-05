@@ -1,123 +1,54 @@
-use crate::entropy::FastAdaptiveModel;
-
-const TOP: u32 = 1 << 24;
-const BOTTOM: u32 = 1 << 16;
-
-pub struct FastRangeEncoder {
-    low: u32,
-    range: u32,
-    output: Vec<u8>,
+pub struct FastAdaptiveModel {
+    pub freq: Box<[u32; 257]>,
+    pub cum: Box<[u32; 258]>,
+    pub total: u32,
 }
 
-impl FastRangeEncoder {
-    pub fn with_capacity(cap: usize) -> Self {
+impl FastAdaptiveModel {
+    pub fn new() -> Self {
+        // Initialize all symbols with an equal base weight
+        let freq = Box::new([1u32; 257]);
+        let mut cum = Box::new([0u32; 258]);
+
+        let mut acc = 0;
+        for i in 0..=256 {
+            cum[i] = acc;
+            acc += freq[i];
+        }
+        cum[257] = acc;
+
         Self {
-            low: 0,
-            range: 0xFFFF_FFFF,
-            output: Vec::with_capacity(cap),
+            freq,
+            cum,
+            total: acc,
         }
     }
 
-    pub fn encode(&mut self, symbol: u8, model: &mut FastAdaptiveModel) {
+    pub fn update(&mut self, symbol: u8) {
         let sym = symbol as usize;
-        let cum_low = model.cum[sym];
-        let freq = model.freq[sym];
-        let total = model.total;
+        self.freq[sym] += 16;
+        self.total += 16;
 
-        self.range /= total;
-        self.low += cum_low * self.range;
-        self.range *= freq;
-
-        while self.range < TOP {
-            if self.low ^ (self.low + self.range) >= TOP {
-                if self.range < BOTTOM {
-                    self.range = (!self.low & (BOTTOM - 1)) + 1;
-                } else {
-                    break;
-                }
+        // Scaling mechanism: when the total frequency mass exceeds the threshold,
+        // we halve all frequencies (bitwise right shift) to prevent range overflow.
+        // The .max(1) ensures no frequency ever drops to absolute zero.
+        if self.total >= 8192 {
+            let mut acc = 0;
+            for i in 0..=256 {
+                self.freq[i] = (self.freq[i] >> 1).max(1);
+                self.cum[i] = acc;
+                acc += self.freq[i];
             }
-            self.output.push((self.low >> 24) as u8);
-            self.range <<= 8;
-            self.low <<= 8;
-        }
-        
-        model.update(symbol);
-    }
-
-    pub fn finish(&mut self) -> &[u8] {
-        for _ in 0..4 {
-            self.output.push((self.low >> 24) as u8);
-            self.low <<= 8;
-        }
-        &self.output
-    }
-
-    pub fn output(&self) -> &[u8] {
-        &self.output
-    }
-}
-
-pub struct FastRangeDecoder<'a> {
-    low: u32,
-    range: u32,
-    code: u32,
-    data: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> FastRangeDecoder<'a> {
-    pub fn new(data: &'a [u8]) -> Option<Self> {
-        if data.len() < 4 { return None; }
-        let mut code = 0;
-        for i in 0..4 {
-            code = (code << 8) | (data[i] as u32);
-        }
-        Some(Self {
-            low: 0,
-            range: 0xFFFF_FFFF,
-            code,
-            data,
-            pos: 4,
-        })
-    }
-
-    pub fn decode(&mut self, model: &mut FastAdaptiveModel) -> u8 {
-        let total = model.total;
-        self.range /= total;
-        let count = (self.code.wrapping_sub(self.low)) / self.range;
-
-        let mut sym = 0;
-        while sym < 256 && model.cum[sym + 1] <= count {
-            sym += 1;
-        }
-
-        self.low += model.cum[sym] * self.range;
-        self.range *= model.freq[sym];
-
-        while self.range < TOP {
-            if self.low ^ (self.low + self.range) >= TOP {
-                if self.range < BOTTOM {
-                    self.range = (!self.low & (BOTTOM - 1)) + 1;
-                } else {
-                    break;
-                }
-            }
-            self.code = (self.code << 8) | self.read_byte() as u32;
-            self.range <<= 8;
-            self.low <<= 8;
-        }
-
-        model.update(sym as u8);
-        sym as u8
-    }
-
-    fn read_byte(&mut self) -> u8 {
-        if self.pos < self.data.len() {
-            let b = self.data[self.pos];
-            self.pos += 1;
-            b
+            self.cum[257] = acc;
+            self.total = acc;
         } else {
-            0
+            // Fast recalculation of the cumulative distribution
+            let mut acc = 0;
+            for i in 0..=256 {
+                self.cum[i] = acc;
+                acc += self.freq[i];
+            }
+            self.cum[257] = acc;
         }
     }
 }
