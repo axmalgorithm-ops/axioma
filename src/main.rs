@@ -8,7 +8,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 4 {
-        eprintln!("Axioma Universal Compressor");
+        eprintln!("Axioma Universal Compressor Core");
         eprintln!("Usage:");
         eprintln!("  {} compress <input_file> <output_file>", args[0]);
         eprintln!("  {} decompress <input_file> <output_file>", args[0]);
