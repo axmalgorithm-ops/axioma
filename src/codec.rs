@@ -1,37 +1,43 @@
-use crate::entropy::FastAdaptiveModel;
+use super::*;
 
-const TOP: u64 = 1 << 24;
-const BOTTOM: u64 = 1 << 16;
+const TOP: u32 = 1 << 24;
+const BOTTOM: u32 = 1 << 16;
 
 pub struct FastRangeEncoder {
-    low: u64,
-    range: u64,
+    low: u32,
+    range: u32,
     output: Vec<u8>,
 }
 
 impl FastRangeEncoder {
-    pub fn with_capacity(cap: usize) -> Self {
+    pub fn new() -> Self {
         Self {
             low: 0,
-            range: 0xFFFF_FFFF_u64,
-            output: Vec::with_capacity(cap),
+            range: 0xFFFF_FFFF,
+            output: Vec::new(),
+        }
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            low: 0,
+            range: 0xFFFF_FFFF,
+            output: Vec::with_capacity(capacity),
         }
     }
 
     pub fn encode(&mut self, symbol: u8, model: &mut FastAdaptiveModel) {
         let sym = symbol as usize;
-        let cum_low = model.cum[sym] as u64;
-        let freq = model.freq[sym] as u64;
-        let total = model.total as u64;
-
+        let total = model.total;
         self.range /= total;
-        self.low += cum_low * self.range;
-        self.range *= freq;
+
+        self.low = self.low.wrapping_add(model.cum[sym] * self.range);
+        self.range *= model.freq[sym];
 
         while self.range < TOP {
-            if (self.low ^ (self.low + self.range)) >= TOP {
+            if self.low ^ (self.low.wrapping_add(self.range)) >= TOP {
                 if self.range < BOTTOM {
-                    self.range = (!self.low & (BOTTOM - 1)) + 1;
+                    self.range = (!self.low & (BOTTOM - 1)).wrapping_add(1);
                 } else {
                     break;
                 }
@@ -58,25 +64,27 @@ impl FastRangeEncoder {
 }
 
 pub struct FastRangeDecoder<'a> {
-    low: u64,
-    range: u64,
-    code: u64,
+    low: u32,
+    range: u32,
+    code: u32,
     data: &'a [u8],
     pos: usize,
 }
 
 impl<'a> FastRangeDecoder<'a> {
     pub fn new(data: &'a [u8]) -> Option<Self> {
-        if data.len() < 4 { return None; }
-        
-        let mut code = 0u64;
-        for i in 0..4 {
-            code = (code << 8) | (data[i] as u64);
+        if data.len() < 4 {
+            return None;
         }
-        
+
+        let mut code = 0;
+        for i in 0..4 {
+            code = (code << 8) | (data[i] as u32);
+        }
+
         Some(Self {
             low: 0,
-            range: 0xFFFF_FFFF_u64,
+            range: 0xFFFF_FFFF,
             code,
             data,
             pos: 4,
@@ -84,31 +92,28 @@ impl<'a> FastRangeDecoder<'a> {
     }
 
     pub fn decode(&mut self, model: &mut FastAdaptiveModel) -> u8 {
-        let total = model.total as u64;
+        let total = model.total;
         self.range /= total;
-        
-        let count = (self.code - self.low) / self.range;
+
+        let count = (self.code.wrapping_sub(self.low)) / self.range;
 
         let mut sym = 0;
-        while sym < 256 && (model.cum[sym + 1] as u64) <= count {
+        while sym < 256 && model.cum[sym + 1] <= count {
             sym += 1;
         }
 
-        let cum_low = model.cum[sym] as u64;
-        let freq = model.freq[sym] as u64;
-
-        self.low += cum_low * self.range;
-        self.range *= freq;
+        self.low = self.low.wrapping_add(model.cum[sym] * self.range);
+        self.range *= model.freq[sym];
 
         while self.range < TOP {
-            if (self.low ^ (self.low + self.range)) >= TOP {
+            if self.low ^ (self.low.wrapping_add(self.range)) >= TOP {
                 if self.range < BOTTOM {
-                    self.range = (!self.low & (BOTTOM - 1)) + 1;
+                    self.range = (!self.low & (BOTTOM - 1)).wrapping_add(1);
                 } else {
                     break;
                 }
             }
-            self.code = (self.code << 8) | (self.read_byte() as u64);
+            self.code = (self.code << 8) | (self.read_byte() as u32);
             self.range <<= 8;
             self.low <<= 8;
         }
