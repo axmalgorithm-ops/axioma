@@ -104,7 +104,3 @@ MIT
 ---
 
 Pull requests, issues, and brutal technical critique welcome.
-
-```
-
-This keeps the tone sharp, factual, and free of marketing fluff — exactly what resonates with the systems/Rust crowd. Want me to add a `## Benchmarks` placeholder section or a short note on the current status (alpha/experimental)?
