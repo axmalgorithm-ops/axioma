@@ -24,16 +24,18 @@ impl FastRangeEncoder {
         let freq = model.freq[sym];
         let total = model.total;
 
-        // Core arithmetic encoding step
+        // Core arithmetic encoding step with wrapping arithmetic for debug safety
         self.range /= total;
-        self.low += cum_low * self.range;
-        self.range *= freq;
+        let add_val = cum_low.wrapping_mul(self.range);
+        self.low = self.low.wrapping_add(add_val);
+        self.range = self.range.wrapping_mul(freq);
 
         // Renormalization loop
         while self.range < TOP {
-            if self.low ^ (self.low + self.range) >= TOP {
+            if self.low ^ (self.low.wrapping_add(self.range)) >= TOP {
                 if self.range < BOTTOM {
-                    self.range = (!self.low & (BOTTOM - 1)) + 1;
+                    let mask = BOTTOM - 1;
+                    self.range = (!self.low & mask).wrapping_add(1);
                 } else {
                     break;
                 }
@@ -47,7 +49,6 @@ impl FastRangeEncoder {
     }
 
     pub fn finish(&mut self) -> &[u8] {
-        // Flush remaining state
         for _ in 0..4 {
             self.output.push((self.low >> 24) as u8);
             self.low <<= 8;
@@ -72,7 +73,6 @@ impl<'a> FastRangeDecoder<'a> {
     pub fn new(data: &'a [u8]) -> Option<Self> {
         if data.len() < 4 { return None; }
         
-        // Initialize decoder state with the first 4 bytes
         let mut code = 0;
         for i in 0..4 {
             code = (code << 8) | (data[i] as u32);
@@ -91,29 +91,27 @@ impl<'a> FastRangeDecoder<'a> {
         let total = model.total;
         self.range /= total;
         
-        // Determine the current cumulative count
         let count = (self.code.wrapping_sub(self.low)) / self.range;
 
-        // Find the matching symbol
         let mut sym = 0;
         while sym < 256 && model.cum[sym + 1] <= count {
             sym += 1;
         }
 
-        // Update bounds
-        self.low += model.cum[sym] * self.range;
-        self.range *= model.freq[sym];
+        let add_val = model.cum[sym].wrapping_mul(self.range);
+        self.low = self.low.wrapping_add(add_val);
+        self.range = self.range.wrapping_mul(model.freq[sym]);
 
-        // Renormalization loop
         while self.range < TOP {
-            if self.low ^ (self.low + self.range) >= TOP {
+            if self.low ^ (self.low.wrapping_add(self.range)) >= TOP {
                 if self.range < BOTTOM {
-                    self.range = (!self.low & (BOTTOM - 1)) + 1;
+                    let mask = BOTTOM - 1;
+                    self.range = (!self.low & mask).wrapping_add(1);
                 } else {
                     break;
                 }
             }
-            self.code = (self.code << 8) | self.read_byte() as u32;
+            self.code = (self.code << 8) | (self.read_byte() as u32);
             self.range <<= 8;
             self.low <<= 8;
         }
