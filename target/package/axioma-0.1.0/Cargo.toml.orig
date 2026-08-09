@@ -1,0 +1,8 @@
+[package]
+name = "axioma"
+version = "0.1.0"
+edition = "2021"
+description = "A zero-allocation, division-free universal compression core"
+authors = ["Murad Abbasov"]
+
+[dependencies]

@@ -48,7 +48,7 @@ fn main() {
             });
 
             let start = Instant::now();
-            let decompressed = decompress(&compressed_data).unwrap_or_else(|| {
+            let decompressed = decompress(&compressed_data).unwrap_or_else(|_| {
                 eprintln!("Error: Corrupted file or invalid format");
                 process::exit(1);
             });

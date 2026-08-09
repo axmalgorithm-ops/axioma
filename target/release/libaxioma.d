@@ -1,0 +1,1 @@
+/data/data/com.termux/files/home/axioma/target/release/libaxioma.rlib: /data/data/com.termux/files/home/axioma/src/codec.rs /data/data/com.termux/files/home/axioma/src/entropy.rs /data/data/com.termux/files/home/axioma/src/lib.rs
