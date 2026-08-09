@@ -18,3 +18,9 @@ No dictionaries. No heavy deps. Just math and a few buffers.
 git clone https://github.com/axmalgorithm-ops/axioma
 cd axioma
 cargo test
+
+## License
+
+`axioma` is dual-licensed:
+- **Open Source:** Licensed under [GNU General Public License v3.0](LICENSE) (GPLv3).
+- **Commercial:** For closed-source, proprietary, or commercial distribution without GPLv3 copyleft restrictions, contact the repository owner.
