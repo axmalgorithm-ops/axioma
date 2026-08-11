@@ -104,8 +104,10 @@ impl Default for ContextModel {
 
 fn update_probability(prob: u8, bit: bool) -> u8 {
     if bit {
-        prob.saturating_add(16).min(250)
-    } else {
+        // Если бит = 1, вероятность 0 снижается
         prob.saturating_sub(16).max(5)
+    } else {
+        // Если бит = 0, вероятность 0 увеличивается
+        prob.saturating_add(16).min(250)
     }
 }
