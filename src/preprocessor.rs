@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+use alloc::vec;
 // ---------- Trait ----------
 
 pub trait Preprocessor {

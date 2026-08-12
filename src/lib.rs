@@ -1,3 +1,5 @@
+#![no_std]
+extern crate alloc;
 pub mod preprocessor;
 pub mod error;
 
@@ -22,3 +24,9 @@ impl CompressionConfig for CortexM0Config {
     const STATE_BUFFER_SIZE: usize = 4096; // 4kb to fit tiny ram
     const CONTEXT_TABLE_SIZE: usize = 4096;
 }
+pub mod context;
+pub mod decoder;
+pub mod encoder;
+pub mod range_coder;
+pub use encoder::Encoder;
+pub use decoder::Decoder;
