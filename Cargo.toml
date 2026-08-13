@@ -1,5 +1,5 @@
 [package]
-name = "axioma"
+name = "axioma-core"
 version = "0.1.0"
 edition = "2021"
 description = "A zero-allocation, division-free universal compression core"
