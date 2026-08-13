@@ -1,6 +1,6 @@
 extern crate alloc;
 
-use axioma::preprocessor::Preprocessor;
+use axioma_core::preprocessor::Preprocessor;
 use alloc::vec::Vec;
 use alloc::vec;
 use alloc::string::ToString;
@@ -17,7 +17,7 @@ fn main() {
 
     for (name, orig) in datasets {
         // Encoder
-        let mut enc_prep = axioma::preprocessor::Lz77Preprocessor::new();
+        let mut enc_prep = axioma_core::preprocessor::Lz77Preprocessor::new();
         let mut comp_buf = vec![0u8; orig.len() * 3 + 1024];
         
         let (_, mut comp_len) = enc_prep.process(&orig, &mut comp_buf);
@@ -31,7 +31,7 @@ fn main() {
         comp_buf.truncate(comp_len);
 
         // Decoder (используем reverse_process и reverse_flush)
-        let mut dec_prep = axioma::preprocessor::Lz77Preprocessor::new();
+        let mut dec_prep = axioma_core::preprocessor::Lz77Preprocessor::new();
         let mut dec_buf = vec![0u8; orig.len() * 3 + 1024];
         
         let (_, mut dec_len) = dec_prep.reverse_process(&comp_buf, &mut dec_buf);
